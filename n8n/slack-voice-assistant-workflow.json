@@ -1,0 +1,76 @@
+{
+  "name": "Call Demo",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const event = $input.all()[0].json;\n\nconst text = event.text || \"\";\nconst userId = event.user;\nconst channel = event.channel;\n\n// Remove bot mention\nconst cleanText = text.replace(/<@[^>]+>/g, \"\").trim().toLowerCase();\n\n// Known contacts (sanitized)\nconst CONTACT_NAMES = [\n  \"user1\",\n  \"user2\",\n  \"user3\",\n  \"user4\",\n  \"user5\",\n  \"user6\",\n  \"user7\",\n  \"user8\",\n  \"user9\",\n  \"user10\"\n];\n\nlet targetName = null;\n\nfor (const name of CONTACT_NAMES) {\n  if (cleanText.includes(`call ${name}`)) {\n    targetName = name;\n    break;\n  }\n}\n\nif (!targetName) {\n  return [{ json: { error: true, stage: \"parse\", message: \"No valid contact name found\", availableContacts: CONTACT_NAMES } }];\n}\n\nconst messageToDeliver = cleanText\n  .replace(`call ${targetName}`, \"\")\n  .replace(/^and\\s+(tell|let)\\s+(them|him|her)\\s+(know\\s+)?/, \"\")\n  .trim();\n\nif (!messageToDeliver) {\n  return [{ json: { error: true, stage: \"parse\", message: \"Message to deliver is missing\" } }];\n}\n\nreturn [{ json: { error: false, targetName, messageToDeliver, requestedBy: userId, channel } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [208, 0],
+      "id": "node-parse",
+      "name": "Parse Slack Command"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.all()[0].json;\n\nif (data.error) return [{ json: data }];\n\n// Sanitized contact directory\nconst CONTACTS = {\n  \"user1\": \"{{USER1_PHONE}}\",\n  \"user2\": \"{{USER2_PHONE}}\",\n  \"user3\": \"{{USER3_PHONE}}\",\n  \"user4\": \"{{USER4_PHONE}}\",\n  \"user5\": \"{{USER5_PHONE}}\",\n  \"user6\": \"{{USER6_PHONE}}\",\n  \"user7\": \"{{USER7_PHONE}}\",\n  \"user8\": \"{{USER8_PHONE}}\",\n  \"user9\": \"{{USER9_PHONE}}\",\n  \"user10\": \"{{USER10_PHONE}}\"\n};\n\nconst phoneNumber = CONTACTS[data.targetName];\n\nif (!phoneNumber) {\n  return [{ json: { error: true, stage: \"lookup\", message: \"Phone not configured\" } }];\n}\n\nreturn [{ json: { error: false, to_number: phoneNumber, recipient_name: data.targetName, message_to_deliver: data.messageToDeliver, requested_by: data.requestedBy } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [416, 0],
+      "id": "node-lookup",
+      "name": "Contact Lookup"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.retellai.com/v2/create-phone-call",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{RETELL_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from_number\": \"{{RETELL_FROM_NUMBER}}\",\n  \"to_number\": \"{{ $json.to_number }}\",\n  \"call_type\": \"phone_call\",\n  \"override_agent_id\": \"{{RETELL_AGENT_ID}}\",\n  \"retell_llm_dynamic_variables\": {\n    \"recipient_name\": \"{{ $json.recipient_name }}\",\n    \"requested_by\": \"{{ $json.requested_by }}\",\n    \"message_to_deliver\": \"{{ $json.message_to_deliver }}\"\n  }\n}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [672, 0],
+      "id": "node-call",
+      "name": "Trigger Call (Retell)"
+    },
+    {
+      "parameters": {
+        "trigger": ["app_mention"],
+        "channelId": "CHANNEL_ID_PLACEHOLDER"
+      },
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "node-slack",
+      "name": "Slack Trigger",
+      "webhookId": "WEBHOOK_ID_PLACEHOLDER"
+    }
+  ],
+  "connections": {
+    "Slack Trigger": {
+      "main": [[{ "node": "Parse Slack Command", "type": "main", "index": 0 }]]
+    },
+    "Parse Slack Command": {
+      "main": [[{ "node": "Contact Lookup", "type": "main", "index": 0 }]]
+    },
+    "Contact Lookup": {
+      "main": [[{ "node": "Trigger Call (Retell)", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false
+}
